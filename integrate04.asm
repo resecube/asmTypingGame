@@ -1,12 +1,12 @@
 DATAS SEGMENT
     string db 'a',20h,120,0,'b',20h,12h,01h,'c',20h,0ach,01h,12 DUP(0)
     speed db 6
-    range db 0;���������������
-    num db 0;���ɵ������
-    input db '-';�û�������ַ�
-    count db 12;��һ�������ɵ��ַ���ƫ�ƣ�ֻ��Ҫ8λ���ɣ�����string���100�ֽڣ�
-    score dw 0;��ȷ�Ĵ���
-    click dw 0;�������
+    range db 0;整型随机数的上限
+    num db 0;生成的随机数
+    input db '-';用户输入的字符
+    count db 12;下一个待生成的字符的偏移（只需要8位即可，由于string最大100字节）
+    score dw 0;正确的次数
+    click dw 0;点击次数
     speed_select db "please input a number to choose speed(1 to 9 recomended)$"
     feedbackMessage db "  great!  your accuracy achieved $"
     feedbackMessage2 db ",  more than $"
@@ -104,7 +104,7 @@ feedback:
     mov ah,09h
     int 21h
     
-    call percent;����ֱֵ����bx��
+    call percent;返回值直接在bx内
     call BINTODEC
     
 	mov dl,'%'
@@ -177,21 +177,18 @@ crlf proc
     ret
 crlf endp
     
-;����
+;清屏
 clear proc
 	push ax
-	MOV AH, 00H  ; �ӹ��ܺ�
-	MOV AL, 03H  ; �������ԣ��ڵװ��֣�
+	MOV AH, 00H  ; 子功能号
+	MOV AL, 03H  ; 清屏属性（黑底白字）
 	INT 10H
 	pop ax
 	ret
 clear endp
 
-
-
-
-;ˢ����Ļ
-;ʹ����es���������ֳ�����
+;刷新屏幕
+;使用了es，但是有现场保护
 refresh proc
 	push ax
 	push bx
@@ -200,23 +197,23 @@ refresh proc
 	push si
 	push di
 	push es
-	;����
+	;清屏
 	call clear
 
 	mov ax,0b800h
 	mov es,ax
 	lea si,string
 	
-	;ѭ������---�ҵ�λ��/�����ַ�������/����λ��
+	;循环操作---找到位置/设置字符与属性/更新位置
 	mov cx,6
 refresh1:
 	mov dx,[si]
-	cmp dl,61h;;;;;;;;;
-	jb refresh_special;����ַ���ascii��С��61h�Ļ����Ͳ���ʾ�ˣ�˵������Ч�ַ�
+	cmp dl,61h
+	jb refresh_special;如果字符的ascii码小于61h的话，就不显示了，说明是无效字符
 	mov di,[si+2]
 	cmp di,4000
-	ja refresh_special;������Դ�����ƫ�ƴ���4000��������ʾ��ֱ����һ��
-	add word ptr [si+2],160;ʹ�´���ʾʱ����
+	ja refresh_special;如果在显存区的偏移大于4000，放弃显示，直接下一轮
+	add word ptr [si+2],160;使下次显示时换行
 	mov es:[di],dx
 refresh_special:
 	add si,4
@@ -234,9 +231,6 @@ refresh_ret:
 refresh endp
 
 
-
-
-
 SLEEP PROC
 	push ax
 	push cx
@@ -249,16 +243,16 @@ loop_outDelay:
 	mov cx,15000
 LOOP_DELAY:
  	
-    MOV AH, 01h   ; ����AH�Ĵ���Ϊ01h����ʾ�����̻�����
-    INT 16h       ; ����BIOS�ж�16h�������̻�����
-    JZ delay_continue ; ������̻�����Ϊ�գ�������click����
+    MOV AH, 01h   ; 设置AH寄存器为01h，表示检查键盘缓冲区
+    INT 16h       ; 调用BIOS中断16h，检查键盘缓冲区
+    JZ delay_continue ; 如果键盘缓冲区为空，则跳过click自增
 
 
 	inc click
-    MOV AH, 00h   ; ����AH�Ĵ���Ϊ00h����ʾ��ȡ����ɨ����
-    INT 16h       ; ����BIOS�ж�16h����ȡ����ɨ����
+    MOV AH, 00h   ; 设置AH寄存器为00h，表示读取键盘扫描码
+    INT 16h       ; 调用BIOS中断16h，读取键盘扫描码
 	
-	;���ַ���ASCII�����input����check�ӿ�
+	;将字符的ASCII码存入input调用check接口
 	mov input,al
 	call check
 delay_continue:
@@ -280,14 +274,14 @@ delay_ret:
 	pop es
   	pop cx
   	pop ax
-  	ret             ; ����
+  	ret             ; 返回
 SLEEP ENDP
 
 
 
-;�Ƚ����޸ĺ�����ǰ����input��������ASCII��
-;���� byte input ��word scoreΪ��Եķ���
-;ֻ�޸���stringû��ʹ��es
+;比较与修改函数，前提是input内输入了ASCII码
+;参数 byte input ，word score为答对的分数
+;只修改了string没有使用es
 check proc
 	push bx
 	push cx
@@ -306,7 +300,7 @@ check_continue:
 check_special:
 	cmp byte ptr [bx+1],20h
 	jz check_continue
-	mov byte ptr [bx+1],20h;ǰ��ɫ��ʾΪ��ɫ
+	mov byte ptr [bx+1],20h;前景色显示为绿色
 	inc score
 	call buzzer
 check_ret:
@@ -317,30 +311,30 @@ check_ret:
 check endp
     
     
-;ʹ��������������
+;使蜂鸣器发出声音
 buzzer proc
     push ax
     push cx
     
-    mov al, 182             ; ���÷���jkģʽ
-    out 43h, al             ; ������д����ƼĴ���
+    mov al, 182             ; 设置方波jk模式
+    out 43h, al             ; 将设置写入控制寄存器
     
-    mov ax, 1           ; ���ü�������ֵ
-    out 42h, al             ; ����8λд�������
+    mov ax, 1           ; 设置计数器初值
+    out 42h, al             ; 将低8位写入计数器
     mov al, ah
-    out 42h, al             ; ����8λд�������
+    out 42h, al             ; 将高8位写入计数器
     
-    in al, 61h              ; ��ȡ���̿��ƼĴ���
-    or al, 3                ; ��PC���ȵĿ���λ
-    out 61h, al             ; ������д����̿��ƼĴ���
+    in al, 61h              ; 读取键盘控制寄存器
+    or al, 3                ; 打开PC喇叭的控制位
+    out 61h, al             ; 将设置写入键盘控制寄存器
     
-    mov cx, 5000            ; ��ʱԼ0.1��
+    mov cx, 5000            ; 延时约0.1秒
 delay1:
-    loop delay1              ; ѭ����ʱ
+    loop delay1              ; 循环延时
     
-    in al, 61h              ; �ر�PC���ȵĿ���λ
+    in al, 61h              ; 关闭PC喇叭的控制位
     and al, 11111100b
-    out 61h, al             ; ������д����̿��ƼĴ���
+    out 61h, al             ; 将设置写入键盘控制寄存器
     
     pop cx
     pop ax
@@ -350,49 +344,49 @@ buzzer endp
 
 
 
-;û��ʹ�õ�es
-;�����ַ�,��������ʹ��20h
+;没有使用到es
+;生成字符,高亮尽量使用20h
 generate proc
 	push bx
 	push dx
 
-	;��һ���ָ��ַ���ֵ�����޸��ַ�ָ��count
+	;这一部分给字符域赋值，并修改字符指针count
 	mov range,27
 	call rand
 	lea bx,string
-	;�ﵽ100�Զ�����
+	;达到100自动回来
 	call mod_count
-	;�� byte count��ʾ���е��ַ�ƫ�ƣ�����֮������ַ��ĵ�ַ
+	;用 byte count表示其中的字符偏移，加上之后就是字符的地址
 	add bl,count
 	adc bh,0
 	add count,4
 	add num,60h
-	;����Ҫ��ʾ��Сд��ĸ
+	;设置要显示的小写字母
 	mov dl,num
 	MOV byte ptr[BX],dl
 
-	;��һ�����Ǹ��ַ���ʾ��������ֵ�����ַ��������������λ������ں�������b800���ֵ��ڴ�
-	mov byte ptr [bx+1],10;Ĭ�ϲ�������ʾ
+	;这一部分是给字符显示的属性域赋值，先字符域再属性域，最后位置域便于后续操作b800部分的内存
+	mov byte ptr [bx+1],10;默认不高亮显示
 
-	;�����ַ���λ����
+	;设置字符的位置域
 	mov range,80
 	call rand
-	;����һλ��ʾ�ڵ�һ�е�λ�ã�ÿ��160�ֽ�
+	;左移一位表示在第一行的位置，每行160字节
 	SHL num,1
-	;������Ӧ�ðѵ������ֽڿ�������ĵ�������ֿ��ˣ���Ҫ��num���ֽ����ͣ���Ҫ�� AX����λ��չ�Ļ��е��鷳
+	;本来是应该把第三四字节看成整体的但是这里分开了，主要是num是字节类型，还要用 AX进行位扩展的话有点麻烦
 	mov dl,num
 	mov byte ptr [bx+2],dl
 	mov dl,0
 	mov byte ptr [bx+3],dl
 	
-	;��β
+	;收尾
 	pop dx
 	pop bx
 	ret
 generate endp
 
-;���� byte rangeΪ������ǰ��ã���Ϊ����ֵ
-;����ֵ�ŵ����� byte num ��
+;参数 byte range为变量提前存好，作为上限值
+;返回值放到变量 byte num 内
 rand proc
 	push ax
 	push cx
@@ -414,7 +408,7 @@ rand proc
 rand endp
 
 
-;ȡ�����
+;取余操作
 mod_count proc
 	cmp count,24
 	jb mod_ret
@@ -423,7 +417,7 @@ mod_ret:
 	ret
 mod_count endp
   
-;Ҫת����ʮ��������ŵ�bx��
+;要转化的十进制数需放到bx内
 BINTODEC proc 
  	push si
 	push bx
@@ -474,7 +468,7 @@ show_ret:
 	ret
 dec_div endp
 
-;����ֵ�ŵ� bx ��
+;返回值放到 bx 内
 percent proc
 	mov ax,score
 	mov bx,100
@@ -488,7 +482,7 @@ percent endp
 
 
 
-;��װ�Զ����9���жϵ��жϷ������
+;安装自定义的9号中断的中断服务程序
 install proc
 	push ds
 	push ax
@@ -496,14 +490,14 @@ install proc
 	push si
 	push di
 	
-	;DS�洢  CS �����ݣ�������жϷ�������Ƶ�ϵͳ�ж�������
+	;DS存储  CS 的内容，方便把中断服务程序复制到系统中断向量区
 	PUSH CS
 	POP DS
  
 	MOV AX,0
 	MOV ES,AX
 
-	;��9���жϵ��жϷ������ת�Ƶ�204H���ڿ��е��ж���������ϵͳ�����������ò���������
+	;把9号中断的中断服务程序转移到204H（在空闲的中断向量区，系统和其他程序都用不到的区域）
 	MOV SI,OFFSET INT9
 	MOV DI,204H
 	MOV CX, OFFSET INT9END - OFFSET INT9
@@ -511,13 +505,13 @@ install proc
 	REP MOVSB
 
 
-	;���õ�ַ200h��202h ����ԭ��9�ż����жϵ��жϷ�������
+	;利用地址200h和202h 保存原来9号键盘中断的中断服务例程
 	PUSH ES:[36]
 	POP  ES:[200H]
 	PUSH ES:[38]
 	POP  ES:[202H]
 
-	;����9���жϵ��жϷ������
+	;设置9号中断的中断服务程序
 	CLI
 	MOV WORD PTR ES:[36], 204H
 	MOV WORD PTR ES:[38],0
@@ -539,8 +533,8 @@ INT9:
 int9_start:
 	PUSH AX
 	
-	;ģ���жϵ��ã���־�Ĵ�����ջ��TF=0��IF=0 CS��IP��ջ�������ж��������޸�CS��IP
-	;����9���ж�����֮ǰ�Ѿ� cli ֻ��Ҫ��־�Ĵ�����ջ��CS��IP��ջ�������ж��������޸�CS��IP����
+	;模仿中断调用：标志寄存器入栈，TF=0，IF=0 CS、IP入栈，根据中断向量表修改CS、IP
+	;调用9号中断例程之前已经 cli 只需要标志寄存器入栈，CS、IP入栈，根据中断向量表修改CS、IP即可
 	PUSHF
 	CALL DWORD PTR CS:[200H]
 	IN AL,60H
@@ -549,13 +543,6 @@ int9_start:
 	jmp INT9RET
 int9_special:
 	mov byte ptr cs:[206h],1
-	
-	;���Է����Ѿ��ɹ�����Ϊ��1���������������е����·�
-	;mov dl,byte ptr cs:[206h]
-	;add dl,30h
-	;mov ah,02h
-	;int 21h
-
 INT9RET:
 	POP AX
 	IRET
